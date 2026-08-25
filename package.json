@@ -1,0 +1,24 @@
+{
+  "name": "valorant-tracker-bot",
+  "version": "1.0.0",
+  "description": "Discord Bot for tracking Valorant player competitive matches and daily stats",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx index.ts",
+    "start": "tsx index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.2.0",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.9",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.2"
+  }
+}

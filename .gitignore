@@ -1,0 +1,26 @@
+# Dependency directories
+node_modules/
+
+# Built files
+dist/
+
+# Local databases
+*.db
+*.db-journal
+*.db-wal
+
+# Local environment configuration
+.env
+.env*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# System files
+.DS_Store
+Thumbs.db
