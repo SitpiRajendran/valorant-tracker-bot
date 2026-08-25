@@ -85,7 +85,7 @@ async function loadValorantAssets() {
   }
 }
 
-// Helper to find a rank emoji in the bot's cache
+// Helper to find a rank emoji in the bot's cache or application global emojis
 // Will match names like "gold3", "gold_3" for a rank named "Gold 3"
 function getRankEmoji(rankName: string): string {
   if (!rankName) return '';
@@ -93,10 +93,19 @@ function getRankEmoji(rankName: string): string {
   const normalized = cleanName.replace(/\s+/g, ''); // "gold3"
   const normalizedWithUnderscore = cleanName.replace(/\s+/g, '_'); // "gold_3"
   
-  const emoji = client.emojis.cache.find(e => {
+  // Search in guild cache first
+  let emoji: any = client.emojis.cache.find(e => {
     const name = e.name?.toLowerCase() || '';
     return name === normalized || name === normalizedWithUnderscore;
   });
+  
+  // Fallback to application global emojis cache
+  if (!emoji && client.application) {
+    emoji = client.application.emojis.cache.find(e => {
+      const name = e.name?.toLowerCase() || '';
+      return name === normalized || name === normalizedWithUnderscore;
+    });
+  }
   
   return emoji ? `${emoji.toString()} ` : '';
 }
@@ -438,7 +447,7 @@ async function registerCommands() {
       .setDescription('Affiche un aperçu de la notification de match directement dans Discord'),
     new SlashCommandBuilder()
       .setName('setup-emojis')
-      .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur ce serveur')
+      .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur l\'application du bot')
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN!);
@@ -461,6 +470,15 @@ client.once('ready', async () => {
   client.user?.setActivity('les parties de compète', { type: ActivityType.Watching });
   
   await loadValorantAssets();
+  
+  // Fetch existing global application emojis into cache
+  try {
+    await client.application?.emojis.fetch();
+    console.log(`[Bot] Loaded ${client.application?.emojis.cache.size || 0} application emojis.`);
+  } catch (err) {
+    console.error('[Bot] Failed to fetch application emojis:', err);
+  }
+
   await registerCommands();
   
   // Start matches polling loop (Every 2 minutes)
@@ -480,12 +498,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
   const { commandName } = interaction;
 
   if (commandName === 'setup-emojis') {
-    if (!interaction.guild) {
-      await interaction.reply({ content: 'Cette commande ne peut être exécutée que sur un serveur.', ephemeral: true });
-      return;
-    }
-
-    // Check permissions
+    // Check permissions (Must be owner/admin of application or guild expression manager)
     const member = interaction.member as any;
     if (!member.permissions.has('ManageGuildExpressions') && !member.permissions.has('Administrator')) {
       await interaction.reply({ content: 'Vous devez avoir la permission d\'administrateur ou de gérer les expressions pour lancer cette commande.', ephemeral: true });
@@ -500,9 +513,16 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         return;
       }
 
-      const guild = interaction.guild;
+      if (!client.application) {
+        await interaction.editReply('Impossible d\'accéder aux données d\'application du bot.');
+        return;
+      }
+
       let count = 0;
       let skipped = 0;
+
+      // Force fetch to ensure fresh cache
+      await client.application.emojis.fetch();
 
       // Fetch all tiers (Iron 1 (3) to Radiant (27))
       for (const [tierIdStr, tierInfo] of Object.entries(assets.tiersByNumber)) {
@@ -516,15 +536,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         // Normalize name: "Gold 3" -> "gold3"
         const emojiName = rawName.replace(/\s+/g, '').toLowerCase();
 
-        // Check if already exists
-        const existing = guild.emojis.cache.find(e => e.name?.toLowerCase() === emojiName);
+        // Check if already exists in the application emojis cache
+        const existing = client.application.emojis.cache.find(e => e.name?.toLowerCase() === emojiName);
         if (existing) {
           skipped++;
           continue;
         }
 
         try {
-          await guild.emojis.create({
+          await client.application.emojis.create({
             attachment: tierInfo.icon,
             name: emojiName
           });
@@ -532,11 +552,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           // Be gentle with Discord rate limits
           await new Promise(res => setTimeout(res, 1000));
         } catch (err) {
-          console.error(`Failed to create emoji ${emojiName}:`, err);
+          console.error(`Failed to create application emoji ${emojiName}:`, err);
         }
       }
 
-      await interaction.editReply(`Configuration des émojis terminée !\n✅ **${count}** émojis créés.\n⏭️ **${skipped}** émojis déjà existants (passés).`);
+      await interaction.editReply(`Configuration des émojis d'application terminée !\n✅ **${count}** émojis créés.\n⏭️ **${skipped}** émojis déjà existants (passés).`);
     } catch (e) {
       console.error('[Bot] Setup emojis error:', e);
       await interaction.editReply('Une erreur est survenue lors de la création des émojis.');
