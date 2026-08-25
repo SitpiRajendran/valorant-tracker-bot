@@ -146,7 +146,6 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const roundsBlue = teamBlue?.rounds?.won ?? 0;
     
     const isRed = playerTeamId === 'Red';
-    const won = isRed ? teamRed?.won : teamBlue?.won;
     const playerScore = isRed ? `${roundsRed}-${roundsBlue}` : `${roundsBlue}-${roundsRed}`;
 
     const kda = `${playerData.stats.kills}/${playerData.stats.deaths}/${playerData.stats.assists}`;
@@ -160,25 +159,69 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const tierIcon = getTierIcon(assets, currentTierId) || 'https://valotracker.sitpi.pro/favicon.ico';
     const mapSplash = getMapImage(assets, mapName) || '';
     
-    const color = won ? 0x00FF00 : 0xFF0000; // Green for win, Red for loss
-    const winStatusText = won ? 'Victoire' : 'Défaite';
+    const isDraw = roundsRed === roundsBlue;
+    const won = isDraw ? false : (isRed ? teamRed?.won : teamBlue?.won);
+    
+    let color = 0x808080; // Gris pour Égalité
+    let winStatusText = 'Égalité';
+    if (!isDraw) {
+      color = won ? 0x00FF00 : 0xFF0000;
+      winStatusText = won ? 'Victoire' : 'Défaite';
+    }
+
+    // KAST, ACS, and Party grouping extraction
+    const kast = playerData.stats?.kast !== undefined ? `${playerData.stats.kast}%` : 'N/A';
+    const totalRounds = roundsRed + roundsBlue;
+    const acs = totalRounds > 0 ? Math.round((playerData.stats?.score || 0) / totalRounds) : 0;
+
+    const myPartyId = playerData.party_id;
+    const partyTeammates = myPartyId && match.players
+      ? match.players.filter((p: any) => p.party_id === myPartyId && p.puuid !== playerData.puuid)
+      : [];
+    const partySize = partyTeammates.length + 1;
+    let groupText = 'Solo';
+    if (partySize > 1) {
+      const label = partySize === 2 ? 'Duo' : (partySize === 3 ? 'Trio' : (partySize === 5 ? '5-Stack' : `Groupe de ${partySize}`));
+      const teammatesNames = partyTeammates.map((p: any) => `${p.name}#${p.tag}`).join(', ');
+      groupText = `${label} (avec ${teammatesNames})`;
+    }
+
+    // MVP check
+    const myScore = playerData.stats?.score || 0;
+    const highestMatchScore = Math.max(...match.players.map((p: any) => p.stats?.score || 0));
+    const isMatchMvp = myScore === highestMatchScore && myScore > 0;
+    
+    const ownTeamPlayers = match.players.filter((p: any) => p.team_id === playerTeamId);
+    const highestTeamScore = Math.max(...ownTeamPlayers.map((p: any) => p.stats?.score || 0));
+    const isTeamMvp = myScore === highestTeamScore && myScore > 0;
+
+    let mvpStatus = '';
+    if (isMatchMvp) {
+      mvpStatus = '🏅 **MVP de la Partie**';
+    } else if (isTeamMvp) {
+      mvpStatus = '🥈 **MVP de l\'Équipe**';
+    }
 
     // RR description builder
-    const rrText = rrChange >= 0 ? `a gagné ${rrChange} RR` : `a perdu ${Math.abs(rrChange)} RR`;
-    const description = `**${player.name}** vient de jouer une partie compète !\n**Statut :** ${rrText} (${currentRank} ${currentRR} RR)`;
+    const rrText = rrChange > 0 ? `a gagné **+${rrChange} RR**` : (rrChange < 0 ? `a perdu **${rrChange} RR**` : `n'a pas changé de RR (0 RR)`);
+    let description = `**${player.name}** ${rrText} !\n**Nouveau score :** **${currentRank} ${currentRR} RR**`;
+    if (mvpStatus) {
+      description += `\n${mvpStatus}`;
+    }
 
     const embed = new EmbedBuilder()
       .setAuthor({ 
-        name: 'Résultat du Match', 
+        name: `Résultat du Match - ${agentName} sur ${mapName}`, 
         iconURL: tierIcon
       })
       .setTitle(`${winStatusText} (${playerScore})`)
       .setDescription(description)
       .setColor(color)
       .addFields(
-        { name: 'KDA', value: kda, inline: true },
-        { name: 'Agent', value: agentName, inline: true },
-        { name: 'Carte', value: mapName, inline: true }
+        { name: 'KDA', value: `\`${kda}\``, inline: true },
+        { name: 'KAST', value: `\`${kast}\``, inline: true },
+        { name: 'ACS', value: `\`${acs}\``, inline: true },
+        { name: 'Groupe', value: groupText, inline: false }
       )
       .setTimestamp(gameStart);
 
@@ -366,7 +409,10 @@ async function registerCommands() {
       .addStringOption(opt => opt.setName('tag').setDescription('Tagline Valorant (sans #)').setRequired(true)),
     new SlashCommandBuilder()
       .setName('list-tracked')
-      .setDescription('Liste de tous les joueurs suivis sur ce serveur')
+      .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
+    new SlashCommandBuilder()
+      .setName('preview')
+      .setDescription('Affiche un aperçu de la notification de match directement dans Discord')
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN!);
@@ -406,6 +452,50 @@ client.on('interactionCreate', async (interaction: Interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
+
+  if (commandName === 'preview') {
+    await interaction.deferReply();
+    try {
+      const mockTierIcon = getTierIcon(assets, 14) || 'https://valotracker.sitpi.pro/favicon.ico';
+      const mockAgentIcon = getAgentIcon(assets, 'jett') || '';
+      const mockMapSplash = getMapImage(assets, 'ascent') || '';
+      const agentName = getAgentName(assets, 'jett');
+      
+      const embed = new EmbedBuilder()
+        .setAuthor({ 
+          name: `Résultat du Match - ${agentName} sur Ascent`, 
+          iconURL: mockTierIcon
+        })
+        .setTitle(`Victoire (13-5)`)
+        .setDescription(`**Sitpi** a gagné **+22 RR** !\n**Nouveau score :** **Or 3 - 62 RR**\n🏅 **MVP de la Partie**`)
+        .setColor(0x00FF00) // Green
+        .addFields(
+          { name: 'KDA', value: '`24/11/5`', inline: true },
+          { name: 'KAST', value: '`83.3%`', inline: true },
+          { name: 'ACS', value: '`285`', inline: true },
+          { name: 'Groupe', value: 'Duo (avec malstrom#EUW)', inline: false }
+        )
+        .setTimestamp(new Date());
+
+      if (mockAgentIcon) {
+        embed.setThumbnail(mockAgentIcon);
+      }
+      
+      if (mockMapSplash) {
+        embed.setImage(mockMapSplash);
+      }
+
+      embed.addFields({ 
+        name: 'Détails du match', 
+        value: `[Voir sur le site](https://valotracker.sitpi.pro/player/Sitpi/EU)` 
+      });
+
+      await interaction.editReply({ embeds: [embed] });
+    } catch (e) {
+      console.error('[Bot] Preview command error:', e);
+      await interaction.editReply('Une erreur est survenue lors de la génération de l\'aperçu.');
+    }
+  }
 
   if (commandName === 'track') {
     await interaction.deferReply();
