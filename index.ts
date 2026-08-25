@@ -444,28 +444,6 @@ async function registerCommands() {
       .setName('list-tracked')
       .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
 new SlashCommandBuilder()
-      .setName('preview')
-      .setDescription('Affiche un aperçu de la notification de match directement dans Discord')
-      .addStringOption(opt => 
-        opt.setName('resultat')
-          .setDescription('Résultat du match (Victoire ou Défaite)')
-          .setRequired(false)
-          .addChoices(
-            { name: 'Victoire', value: 'win' },
-            { name: 'Défaite', value: 'loss' }
-          )
-      )
-      .addStringOption(opt => 
-        opt.setName('groupe')
-          .setDescription('Type de groupe (Solo, Duo, Trio)')
-          .setRequired(false)
-          .addChoices(
-            { name: 'Solo', value: 'solo' },
-            { name: 'Duo', value: 'duo' },
-            { name: 'Trio', value: 'trio' }
-          )
-      ),
-    new SlashCommandBuilder()
       .setName('setup-emojis')
       .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur l\'application du bot')
   ].map(cmd => cmd.toJSON());
