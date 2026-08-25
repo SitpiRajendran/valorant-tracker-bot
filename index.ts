@@ -1,11 +1,11 @@
-import { 
-  Client, 
-  GatewayIntentBits, 
-  REST, 
-  Routes, 
-  SlashCommandBuilder, 
-  EmbedBuilder, 
-  TextChannel, 
+import {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  TextChannel,
   Interaction,
   ActivityType,
   ActionRowBuilder,
@@ -16,13 +16,13 @@ import Database from 'better-sqlite3';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 import path from 'path';
-import { 
-  getValorantAssets, 
-  getAgentIcon, 
-  getAgentName, 
-  getMapImage, 
-  getTierIcon, 
-  ValorantAssets 
+import {
+  getValorantAssets,
+  getAgentIcon,
+  getAgentName,
+  getMapImage,
+  getTierIcon,
+  ValorantAssets
 } from './valorant-assets';
 
 // Load environment variables from parent .env
@@ -92,13 +92,13 @@ function getRankEmoji(rankName: string): string {
   const cleanName = rankName.trim().toLowerCase();
   const normalized = cleanName.replace(/\s+/g, ''); // "gold3"
   const normalizedWithUnderscore = cleanName.replace(/\s+/g, '_'); // "gold_3"
-  
+
   // Search in guild cache first
   let emoji: any = client.emojis.cache.find(e => {
     const name = e.name?.toLowerCase() || '';
     return name === normalized || name === normalizedWithUnderscore;
   });
-  
+
   // Fallback to application global emojis cache
   if (!emoji && client.application) {
     emoji = client.application.emojis.cache.find(e => {
@@ -106,7 +106,7 @@ function getRankEmoji(rankName: string): string {
       return name === normalized || name === normalizedWithUnderscore;
     });
   }
-  
+
   return emoji ? `${emoji.toString()} ` : '';
 }
 
@@ -118,7 +118,7 @@ async function fetchHenrikDev<T>(endpoint: string): Promise<T | null> {
   if (VALORANT_API_KEY) {
     headers['Authorization'] = VALORANT_API_KEY;
   }
-  
+
   try {
     const res = await fetch(`https://api.henrikdev.xyz${endpoint}`, { headers });
     if (!res.ok) {
@@ -146,7 +146,7 @@ function getAbsoluteMMR(tierName: string, rr: number): number {
     'immortal 1', 'immortal 2', 'immortal 3',
     'radiant'
   ];
-  
+
   const index = tiers.indexOf(tierName.trim().toLowerCase());
   if (index === -1) return 0;
   return (index * 100) + rr;
@@ -161,7 +161,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const matchId = match.metadata.match_id;
     const mapName = match.metadata.map.name;
     const gameStart = new Date(match.metadata.started_at);
-    
+
     // Find player in the match
     const playerData = match.players.find((p: any) => p.puuid === player.puuid || (p.name.toLowerCase() === player.name.toLowerCase() && p.tag.toLowerCase() === player.tag.toLowerCase()));
     if (!playerData) return;
@@ -169,26 +169,26 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const playerTeamId = playerData.team_id;
     const teamRed = match.teams.find((t: any) => t.team_id === 'Red');
     const teamBlue = match.teams.find((t: any) => t.team_id === 'Blue');
-    
+
     const roundsRed = teamRed?.rounds?.won ?? 0;
     const roundsBlue = teamBlue?.rounds?.won ?? 0;
-    
+
     const isRed = playerTeamId === 'Red';
     const playerScore = isRed ? `${roundsRed}-${roundsBlue}` : `${roundsBlue}-${roundsRed}`;
 
     const kda = `${playerData.stats.kills}/${playerData.stats.deaths}/${playerData.stats.assists}`;
     const agentName = getAgentName(assets, playerData.agent.name || playerData.agent.id);
     const agentIcon = getAgentIcon(assets, playerData.agent.id || playerData.agent.name) || '';
-    
+
     const rrChange = mmr.mmr_change_to_last_game ?? 0;
     const currentRR = mmr.ranking_in_tier ?? 0;
     const currentRank = mmr.currenttierpatched ?? 'Non classé';
     const currentTierId = mmr.currenttier ?? 0;
     const tierIcon = getTierIcon(assets, currentTierId) || 'https://valotracker.sitpi.pro/favicon.ico';
-    
+
     const isDraw = roundsRed === roundsBlue;
     const won = isDraw ? false : (isRed ? teamRed?.won : teamBlue?.won);
-    
+
     let color = 0x808080; // Gris pour Égalité
     let winStatusText = 'Égalité';
     let outcomeEmoji = '⚖️';
@@ -214,7 +214,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       const teammatesNames = partyTeammates.map((p: any) => {
         const rankName = p.currenttier_patched || 'Non classé';
         const mateEmoji = getRankEmoji(rankName);
-        return `${p.name}#${p.tag} (${mateEmoji}${rankName})`;
+        return mateEmoji ? `${p.name}#${p.tag} ${mateEmoji.trim()}` : `${p.name}#${p.tag} (${rankName})`;
       }).join(', ');
       groupText = `${label} (avec ${teammatesNames})`;
     }
@@ -223,40 +223,38 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const myScore = playerData.stats?.score || 0;
     const highestMatchScore = Math.max(...match.players.map((p: any) => p.stats?.score || 0));
     const isMatchMvp = myScore === highestMatchScore && myScore > 0;
-    
+
     const ownTeamPlayers = match.players.filter((p: any) => p.team_id === playerTeamId);
     const highestTeamScore = Math.max(...ownTeamPlayers.map((p: any) => p.stats?.score || 0));
     const isTeamMvp = myScore === highestTeamScore && myScore > 0;
 
-    let mvpStatus = '';
+    let mvpTitleSuffix = '';
     if (isMatchMvp) {
-      mvpStatus = '🏅 **MVP de la Partie**';
+      mvpTitleSuffix = ' • 🏅 MVP';
     } else if (isTeamMvp) {
-      mvpStatus = '🥈 **MVP de l\'Équipe**';
+      mvpTitleSuffix = ' • 🥈 MVP';
     }
 
     // RR description builder
     const rrText = rrChange >= 0 ? `+${rrChange} RR` : `${rrChange} RR`;
     const userRankEmoji = getRankEmoji(currentRank);
-    let description = `${userRankEmoji}**${currentRank}** • **${currentRR} RR** (\`${rrText}\`)\n`;
-    if (mvpStatus) {
-      description += `${mvpStatus}\n`;
-    }
-    description += `👥 **Groupe :** ${groupText}`;
+    let description = `${userRankEmoji}**${currentRank}** • **${currentRR} RR** (\`${rrText}\`)`;
 
     const embed = new EmbedBuilder()
-      .setAuthor({ 
-        name: `${player.name}#${player.tag}`, 
+      .setAuthor({
+        name: `${player.name}#${player.tag}`,
         iconURL: tierIcon
       })
-      .setTitle(`${outcomeEmoji} ${winStatusText} (${playerScore}) — ${mapName}`)
+      .setTitle(`${outcomeEmoji} ${winStatusText} (${playerScore})${mvpTitleSuffix}`)
       .setDescription(description)
       .setColor(color)
       .addFields(
         { name: 'KDA', value: `\`${kda}\``, inline: true },
         { name: 'KAST', value: `\`${kast}\``, inline: true },
-        { name: 'ACS', value: `\`${acs}\``, inline: true }
+        { name: 'ACS', value: `\`${acs}\``, inline: true },
+        { name: 'Groupe', value: `👥 ${groupText}`, inline: false }
       )
+      .setFooter({ text: mapName })
       .setTimestamp(gameStart);
 
     if (agentIcon) {
@@ -268,7 +266,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       .setLabel('Détails du match')
       .setURL(`https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}`)
       .setStyle(ButtonStyle.Link);
-      
+
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
     await channel.send({ embeds: [embed], components: [row] });
@@ -282,7 +280,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
 async function pollPlayersMatches() {
   const players = db.prepare('SELECT * FROM tracked_players').all() as TrackedPlayer[];
   console.log(`[Bot] Polling match history for ${players.length} players...`);
-  
+
   for (const player of players) {
     try {
       // Get MMR history (Competitive games only)
@@ -297,7 +295,7 @@ async function pollPlayersMatches() {
       if (!player.last_match_id) {
         db.prepare('UPDATE tracked_players SET last_match_id = ? WHERE id = ?')
           .run(latestMatchId, player.id);
-        
+
         // Also set starting daily stats if empty
         if (player.daily_start_rr === null) {
           const todayStr = new Date().toISOString().split('T')[0];
@@ -312,16 +310,16 @@ async function pollPlayersMatches() {
         // Fetch detailed match info
         const matchUrl = `/valorant/v4/matches/eu/pc/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}?size=1`;
         const matchData = await fetchHenrikDev<any>(matchUrl);
-        
+
         if (matchData && matchData.data && matchData.data.length > 0) {
           const match = matchData.data[0];
-          
+
           // Verify it matches the queue type (Competitive)
           const isComp = match.metadata?.queue?.name?.toLowerCase() === 'competitive';
           if (isComp) {
             await sendMatchNotification(player, match, latestMmr);
           }
-          
+
           // Save last match ID
           db.prepare('UPDATE tracked_players SET last_match_id = ? WHERE id = ?')
             .run(latestMatchId, player.id);
@@ -363,13 +361,13 @@ async function sendDailySummaries() {
         // Fetch latest MMR stats
         const mmrUrl = `/valorant/v1/mmr-history/eu/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}`;
         const mmrHistory = await fetchHenrikDev<any>(mmrUrl);
-        
+
         if (!mmrHistory || !mmrHistory.data || mmrHistory.data.length === 0) continue;
         const latestMmr = mmrHistory.data[0];
 
         const startRank = player.daily_start_rank || latestMmr.currenttierpatched || 'Non classé';
         const startRR = player.daily_start_rr ?? latestMmr.ranking_in_tier ?? 0;
-        
+
         const currentRank = latestMmr.currenttierpatched || 'Non classé';
         const currentRR = latestMmr.ranking_in_tier ?? 0;
 
@@ -377,7 +375,7 @@ async function sendDailySummaries() {
         const startAbs = getAbsoluteMMR(startRank, startRR);
         const currentAbs = getAbsoluteMMR(currentRank, currentRR);
         const delta = currentAbs - startAbs;
-        
+
         const deltaSign = delta >= 0 ? `+${delta}` : `${delta}`;
 
         // Get Wins & Losses in the last 24 hours
@@ -388,7 +386,7 @@ async function sendDailySummaries() {
         for (const item of mmrHistory.data) {
           const matchDate = new Date(item.date).getTime();
           if (matchDate < oneDayAgo) break;
-          
+
           if (item.mmr_change_to_last_game > 0) {
             wins++;
           } else if (item.mmr_change_to_last_game < 0) {
@@ -415,7 +413,7 @@ async function sendDailySummaries() {
           .setDescription(summaryLines.join('\n'))
           .setColor(0xE91E63) // Pink accent bar
           .setTimestamp();
-          
+
         await channel.send({ embeds: [embed] });
         console.log(`[Bot] Posted Yesterday's Summary in channel ${channelId}`);
       }
@@ -468,9 +466,9 @@ async function registerCommands() {
 client.once('ready', async () => {
   console.log(`[Bot] Logged in as ${client.user?.tag}`);
   client.user?.setActivity('les parties de compète', { type: ActivityType.Watching });
-  
+
   await loadValorantAssets();
-  
+
   // Fetch existing global application emojis into cache
   try {
     await client.application?.emojis.fetch();
@@ -480,11 +478,11 @@ client.once('ready', async () => {
   }
 
   await registerCommands();
-  
+
   // Start matches polling loop (Every 2 minutes)
   pollPlayersMatches(); // initial run
   setInterval(pollPlayersMatches, 2 * 60 * 1000);
-  
+
   // Schedule Daily Summary at 10:00 AM every day
   cron.schedule('0 10 * * *', () => {
     console.log('[Scheduler] Running scheduled Daily Summary...');
@@ -532,7 +530,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
         const rawName = tierInfo.name;
         if (!rawName) continue;
-        
+
         // Normalize name: "Gold 3" -> "gold3"
         const emojiName = rawName.replace(/\s+/g, '').toLowerCase();
 
@@ -569,23 +567,25 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const mockTierIcon = getTierIcon(assets, 14) || 'https://valotracker.sitpi.pro/favicon.ico';
       const mockAgentIcon = getAgentIcon(assets, 'jett') || '';
       const agentName = getAgentName(assets, 'jett');
-      
+
       const mockEmoji = getRankEmoji('Gold 3'); // Test resolving local emoji if it exists
       const mockMateEmoji = getRankEmoji('Silver 2');
-      
+
       const embed = new EmbedBuilder()
-        .setAuthor({ 
-          name: `Sitpi#EUW`, 
+        .setAuthor({
+          name: `Sitpi#EUW`,
           iconURL: mockTierIcon
         })
-        .setTitle(`🏆 Victoire (13-5) — Ascent`)
-        .setDescription(`${mockEmoji}**Or 3** • **62 RR** (\`+22 RR\`)\n🏅 **MVP de la Partie**\n👥 **Groupe :** Duo (avec malstrom#EUW (${mockMateEmoji}Argent 2))`)
+        .setTitle(`🏆 Victoire (13-5) • 🏅 MVP`)
+        .setDescription(`${mockEmoji ? mockEmoji + '**Or 3**' : '**Or 3**'} • **62 RR** (\`+22 RR\`)`)
         .setColor(0x00FF00) // Green
         .addFields(
           { name: 'KDA', value: '`24/11/5`', inline: true },
           { name: 'KAST', value: '`83.3%`', inline: true },
-          { name: 'ACS', value: '`285`', inline: true }
+          { name: 'ACS', value: '`285`', inline: true },
+          { name: 'Groupe', value: `👥 Duo (avec ${mockMateEmoji ? 'malstrom#EUW ' + mockMateEmoji.trim() : 'malstrom#EUW (Argent 2)'})`, inline: false }
         )
+        .setFooter({ text: 'Ascent' })
         .setTimestamp(new Date());
 
       if (mockAgentIcon) {
@@ -596,7 +596,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         .setLabel('Détails du match')
         .setURL('https://valotracker.sitpi.pro/player/Sitpi/EUW')
         .setStyle(ButtonStyle.Link);
-        
+
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
       await interaction.editReply({ embeds: [embed], components: [row] });
@@ -611,7 +611,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     const name = interaction.options.getString('name')!.trim();
     const tag = interaction.options.getString('tag')!.trim().replace('#', '');
     const channel = (interaction.options.getChannel('channel') || interaction.channel) as any;
-    
+
     if (!channel || (typeof channel.isTextBased === 'function' && !channel.isTextBased())) {
       await interaction.editReply('Erreur : Le salon sélectionné n\'est pas un salon textuel valide.');
       return;
@@ -621,7 +621,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       // Validate with API
       const accUrl = `/valorant/v1/account/${encodeURIComponent(name)}/${encodeURIComponent(tag)}`;
       const accountData = await fetchHenrikDev<any>(accUrl);
-      
+
       if (!accountData || !accountData.data || !accountData.data.puuid) {
         await interaction.editReply(`Impossible de trouver le joueur Valorant \`${name}#${tag}\`. Veuillez vérifier le nom et le tag.`);
         return;
@@ -652,7 +652,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     try {
       const info = db.prepare('DELETE FROM tracked_players WHERE name = ? COLLATE NOCASE AND tag = ? COLLATE NOCASE')
         .run(name, tag);
-        
+
       if (info.changes > 0) {
         await interaction.reply(`Le suivi compétitif de **${name}#${tag}** a été arrêté.`);
       } else {
