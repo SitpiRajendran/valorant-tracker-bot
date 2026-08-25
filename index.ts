@@ -7,7 +7,10 @@ import {
   EmbedBuilder, 
   TextChannel, 
   Interaction,
-  ActivityType
+  ActivityType,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
 } from 'discord.js';
 import Database from 'better-sqlite3';
 import cron from 'node-cron';
@@ -80,6 +83,22 @@ async function loadValorantAssets() {
   } catch (err) {
     console.error('[Bot] Failed to load static assets:', err);
   }
+}
+
+// Helper to find a rank emoji in the bot's cache
+// Will match names like "gold3", "gold_3" for a rank named "Gold 3"
+function getRankEmoji(rankName: string): string {
+  if (!rankName) return '';
+  const cleanName = rankName.trim().toLowerCase();
+  const normalized = cleanName.replace(/\s+/g, ''); // "gold3"
+  const normalizedWithUnderscore = cleanName.replace(/\s+/g, '_'); // "gold_3"
+  
+  const emoji = client.emojis.cache.find(e => {
+    const name = e.name?.toLowerCase() || '';
+    return name === normalized || name === normalizedWithUnderscore;
+  });
+  
+  return emoji ? `${emoji.toString()} ` : '';
 }
 
 // HenrikDev API helper
@@ -163,9 +182,11 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     
     let color = 0x808080; // Gris pour Égalité
     let winStatusText = 'Égalité';
+    let outcomeEmoji = '⚖️';
     if (!isDraw) {
       color = won ? 0x00FF00 : 0xFF0000;
       winStatusText = won ? 'Victoire' : 'Défaite';
+      outcomeEmoji = won ? '🏆' : '💀';
     }
 
     // KAST, ACS, and Party grouping extraction
@@ -181,7 +202,11 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     let groupText = 'Solo';
     if (partySize > 1) {
       const label = partySize === 2 ? 'Duo' : (partySize === 3 ? 'Trio' : (partySize === 5 ? '5-Stack' : `Groupe de ${partySize}`));
-      const teammatesNames = partyTeammates.map((p: any) => `${p.name}#${p.tag}`).join(', ');
+      const teammatesNames = partyTeammates.map((p: any) => {
+        const rankName = p.currenttier_patched || 'Non classé';
+        const mateEmoji = getRankEmoji(rankName);
+        return `${p.name}#${p.tag} (${mateEmoji}${rankName})`;
+      }).join(', ');
       groupText = `${label} (avec ${teammatesNames})`;
     }
 
@@ -202,26 +227,26 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     }
 
     // RR description builder
-    const rrText = rrChange > 0 ? `a gagné **+${rrChange} RR**` : (rrChange < 0 ? `a perdu **${rrChange} RR**` : `n'a pas changé de RR (0 RR)`);
-    let description = `**${player.name}** ${rrText} (${currentRank} - ${currentRR} RR)`;
+    const rrText = rrChange >= 0 ? `+${rrChange} RR` : `${rrChange} RR`;
+    const userRankEmoji = getRankEmoji(currentRank);
+    let description = `${userRankEmoji}**${currentRank}** • **${currentRR} RR** (\`${rrText}\`)\n`;
     if (mvpStatus) {
-      description += `\n${mvpStatus}`;
+      description += `${mvpStatus}\n`;
     }
-    description += `\n\n[Voir les détails du match sur le site](https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)})`;
+    description += `👥 **Groupe :** ${groupText}`;
 
     const embed = new EmbedBuilder()
       .setAuthor({ 
-        name: `Résultat du Match - ${agentName} sur ${mapName}`, 
+        name: `${player.name}#${player.tag}`, 
         iconURL: tierIcon
       })
-      .setTitle(`${winStatusText} (${playerScore})`)
+      .setTitle(`${outcomeEmoji} ${winStatusText} (${playerScore}) — ${mapName}`)
       .setDescription(description)
       .setColor(color)
       .addFields(
         { name: 'KDA', value: `\`${kda}\``, inline: true },
         { name: 'KAST', value: `\`${kast}\``, inline: true },
-        { name: 'ACS', value: `\`${acs}\``, inline: true },
-        { name: 'Groupe', value: groupText, inline: false }
+        { name: 'ACS', value: `\`${acs}\``, inline: true }
       )
       .setTimestamp(gameStart);
 
@@ -229,7 +254,15 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       embed.setThumbnail(agentIcon);
     }
 
-    await channel.send({ embeds: [embed] });
+    // Button to go to the website
+    const button = new ButtonBuilder()
+      .setLabel('Détails du match')
+      .setURL(`https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}`)
+      .setStyle(ButtonStyle.Link);
+      
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
+
+    await channel.send({ embeds: [embed], components: [row] });
     console.log(`[Bot] Sent match result notification for ${player.name}#${player.tag} in channel ${player.channel_id}`);
   } catch (err) {
     console.error(`[Bot] Failed to send match notification for ${player.name}:`, err);
@@ -402,7 +435,10 @@ async function registerCommands() {
       .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
     new SlashCommandBuilder()
       .setName('preview')
-      .setDescription('Affiche un aperçu de la notification de match directement dans Discord')
+      .setDescription('Affiche un aperçu de la notification de match directement dans Discord'),
+    new SlashCommandBuilder()
+      .setName('setup-emojis')
+      .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur ce serveur')
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN!);
@@ -443,6 +479,70 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
   const { commandName } = interaction;
 
+  if (commandName === 'setup-emojis') {
+    if (!interaction.guild) {
+      await interaction.reply({ content: 'Cette commande ne peut être exécutée que sur un serveur.', ephemeral: true });
+      return;
+    }
+
+    // Check permissions
+    const member = interaction.member as any;
+    if (!member.permissions.has('ManageGuildExpressions') && !member.permissions.has('Administrator')) {
+      await interaction.reply({ content: 'Vous devez avoir la permission d\'administrateur ou de gérer les expressions pour lancer cette commande.', ephemeral: true });
+      return;
+    }
+
+    await interaction.deferReply();
+
+    try {
+      if (!assets || !assets.tiersByNumber) {
+        await interaction.editReply('Les ressources Valorant ne sont pas chargées. Réessayez dans quelques secondes.');
+        return;
+      }
+
+      const guild = interaction.guild;
+      let count = 0;
+      let skipped = 0;
+
+      // Fetch all tiers (Iron 1 (3) to Radiant (27))
+      for (const [tierIdStr, tierInfo] of Object.entries(assets.tiersByNumber)) {
+        const tierId = parseInt(tierIdStr, 10);
+        // Exclude unrated (0), unknown (1, 2)
+        if (tierId < 3 || tierId > 27) continue;
+
+        const rawName = tierInfo.name;
+        if (!rawName) continue;
+        
+        // Normalize name: "Gold 3" -> "gold3"
+        const emojiName = rawName.replace(/\s+/g, '').toLowerCase();
+
+        // Check if already exists
+        const existing = guild.emojis.cache.find(e => e.name?.toLowerCase() === emojiName);
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          await guild.emojis.create({
+            attachment: tierInfo.icon,
+            name: emojiName
+          });
+          count++;
+          // Be gentle with Discord rate limits
+          await new Promise(res => setTimeout(res, 1000));
+        } catch (err) {
+          console.error(`Failed to create emoji ${emojiName}:`, err);
+        }
+      }
+
+      await interaction.editReply(`Configuration des émojis terminée !\n✅ **${count}** émojis créés.\n⏭️ **${skipped}** émojis déjà existants (passés).`);
+    } catch (e) {
+      console.error('[Bot] Setup emojis error:', e);
+      await interaction.editReply('Une erreur est survenue lors de la création des émojis.');
+    }
+  }
+
   if (commandName === 'preview') {
     await interaction.deferReply();
     try {
@@ -450,19 +550,21 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const mockAgentIcon = getAgentIcon(assets, 'jett') || '';
       const agentName = getAgentName(assets, 'jett');
       
+      const mockEmoji = getRankEmoji('Gold 3'); // Test resolving local emoji if it exists
+      const mockMateEmoji = getRankEmoji('Silver 2');
+      
       const embed = new EmbedBuilder()
         .setAuthor({ 
-          name: `Résultat du Match - ${agentName} sur Ascent`, 
+          name: `Sitpi#EUW`, 
           iconURL: mockTierIcon
         })
-        .setTitle(`Victoire (13-5)`)
-        .setDescription(`**Sitpi** a gagné **+22 RR** (Or 3 - 62 RR)\n🏅 **MVP de la Partie**\n\n[Voir les détails du match sur le site](https://valotracker.sitpi.pro/player/Sitpi/EU)`)
+        .setTitle(`🏆 Victoire (13-5) — Ascent`)
+        .setDescription(`${mockEmoji}**Or 3** • **62 RR** (\`+22 RR\`)\n🏅 **MVP de la Partie**\n👥 **Groupe :** Duo (avec malstrom#EUW (${mockMateEmoji}Argent 2))`)
         .setColor(0x00FF00) // Green
         .addFields(
           { name: 'KDA', value: '`24/11/5`', inline: true },
           { name: 'KAST', value: '`83.3%`', inline: true },
-          { name: 'ACS', value: '`285`', inline: true },
-          { name: 'Groupe', value: 'Duo (avec malstrom#EUW)', inline: false }
+          { name: 'ACS', value: '`285`', inline: true }
         )
         .setTimestamp(new Date());
 
@@ -470,7 +572,14 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         embed.setThumbnail(mockAgentIcon);
       }
 
-      await interaction.editReply({ embeds: [embed] });
+      const button = new ButtonBuilder()
+        .setLabel('Détails du match')
+        .setURL('https://valotracker.sitpi.pro/player/Sitpi/EUW')
+        .setStyle(ButtonStyle.Link);
+        
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
+
+      await interaction.editReply({ embeds: [embed], components: [row] });
     } catch (e) {
       console.error('[Bot] Preview command error:', e);
       await interaction.editReply('Une erreur est survenue lors de la génération de l\'aperçu.');
