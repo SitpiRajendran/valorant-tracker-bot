@@ -191,11 +191,9 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
 
     let color = 0x808080; // Gris pour Égalité
     let winStatusText = 'Égalité';
-    let outcomeEmoji = '⚖️';
     if (!isDraw) {
       color = won ? 0x00FF00 : 0xFF0000;
       winStatusText = won ? 'Victoire' : 'Défaite';
-      outcomeEmoji = won ? '🏆' : '💀';
     }
 
     // KAST, ACS, and Party grouping extraction
@@ -217,7 +215,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       groupFieldValue = partyTeammates.map((p: any) => {
         const rankName = p.currenttier_patched || 'Non classé';
         const mateEmoji = getRankEmoji(rankName);
-        return mateEmoji ? `${p.name}#${p.tag} ${mateEmoji.trim()}` : `${p.name}#${p.tag} (${rankName})`;
+        return mateEmoji ? `${mateEmoji.trim()} ${p.name}#${p.tag}` : `${p.name}#${p.tag} (${rankName})`;
       }).join('\n');
     }
 
@@ -234,7 +232,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     if (isMatchMvp) {
       mvpTitleSuffix = ' • 🏅 MVP';
     } else if (isTeamMvp) {
-      mvpTitleSuffix = ' • 🥈 MVP';
+      mvpTitleSuffix = ' • 🥈 MVP Équipe';
     }
 
     // RR description builder
@@ -247,7 +245,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
         name: `${player.name}#${player.tag}`,
         iconURL: tierIcon
       })
-      .setTitle(`${outcomeEmoji} ${winStatusText} (${playerScore})${mvpTitleSuffix}`)
+      .setTitle(`${winStatusText} (${playerScore})${mvpTitleSuffix}`)
       .setDescription(description)
       .setColor(color)
       .addFields(
@@ -605,12 +603,12 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       let rrChangeText = '';
       let rankDetails = '';
       if (optResultat === 'loss') {
-        title = '💀 Défaite (5-13) • 🥈 MVP';
+        title = 'Défaite (5-13) • 🥈 MVP Équipe';
         color = 0xFF0000;
         rrChangeText = '**-12 RR**';
         rankDetails = 'Or 3 • 50 RR';
       } else {
-        title = '🏆 Victoire (13-5) • 🏅 MVP';
+        title = 'Victoire (13-5) • 🏅 MVP';
         color = 0x00FF00;
         rrChangeText = '**+22 RR**';
         rankDetails = 'Or 3 • 62 RR';
@@ -628,11 +626,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       if (optGroupe === 'duo') {
         groupFieldName = 'Duo';
-        groupFieldValue = mockMateEmoji ? `malstrom#EUW ${mate1Disp}` : 'malstrom#EUW (Argent 2)';
+        groupFieldValue = mockMateEmoji ? `${mate1Disp} malstrom#EUW` : 'malstrom#EUW (Argent 2)';
       } else if (optGroupe === 'trio') {
         groupFieldName = 'Trio';
-        const disp1 = mockMateEmoji ? `malstrom#EUW ${mate1Disp}` : 'malstrom#EUW (Argent 2)';
-        const disp2 = mockMate2Emoji ? `teammate2#EUW ${mate2Disp}` : 'teammate2#EUW (Bronze 3)';
+        const disp1 = mockMateEmoji ? `${mate1Disp} malstrom#EUW` : 'malstrom#EUW (Argent 2)';
+        const disp2 = mockMate2Emoji ? `${mate2Disp} teammate2#EUW` : 'teammate2#EUW (Bronze 3)';
         groupFieldValue = `${disp1}\n${disp2}`;
       }
 
