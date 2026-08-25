@@ -157,7 +157,6 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     const currentRank = mmr.currenttierpatched ?? 'Non classé';
     const currentTierId = mmr.currenttier ?? 0;
     const tierIcon = getTierIcon(assets, currentTierId) || 'https://valotracker.sitpi.pro/favicon.ico';
-    const mapSplash = getMapImage(assets, mapName) || '';
     
     const isDraw = roundsRed === roundsBlue;
     const won = isDraw ? false : (isRed ? teamRed?.won : teamBlue?.won);
@@ -204,10 +203,11 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
 
     // RR description builder
     const rrText = rrChange > 0 ? `a gagné **+${rrChange} RR**` : (rrChange < 0 ? `a perdu **${rrChange} RR**` : `n'a pas changé de RR (0 RR)`);
-    let description = `**${player.name}** ${rrText} !\n**Nouveau score :** **${currentRank} ${currentRR} RR**`;
+    let description = `**${player.name}** ${rrText} (${currentRank} - ${currentRR} RR)`;
     if (mvpStatus) {
       description += `\n${mvpStatus}`;
     }
+    description += `\n\n[Voir les détails du match sur le site](https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)})`;
 
     const embed = new EmbedBuilder()
       .setAuthor({ 
@@ -228,16 +228,6 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     if (agentIcon) {
       embed.setThumbnail(agentIcon);
     }
-    
-    if (mapSplash) {
-      embed.setImage(mapSplash);
-    }
-
-    // Embed matching link
-    embed.addFields({ 
-      name: 'Détails du match', 
-      value: `[Voir sur le site](https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)})` 
-    });
 
     await channel.send({ embeds: [embed] });
     console.log(`[Bot] Sent match result notification for ${player.name}#${player.tag} in channel ${player.channel_id}`);
@@ -458,7 +448,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     try {
       const mockTierIcon = getTierIcon(assets, 14) || 'https://valotracker.sitpi.pro/favicon.ico';
       const mockAgentIcon = getAgentIcon(assets, 'jett') || '';
-      const mockMapSplash = getMapImage(assets, 'ascent') || '';
       const agentName = getAgentName(assets, 'jett');
       
       const embed = new EmbedBuilder()
@@ -467,7 +456,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           iconURL: mockTierIcon
         })
         .setTitle(`Victoire (13-5)`)
-        .setDescription(`**Sitpi** a gagné **+22 RR** !\n**Nouveau score :** **Or 3 - 62 RR**\n🏅 **MVP de la Partie**`)
+        .setDescription(`**Sitpi** a gagné **+22 RR** (Or 3 - 62 RR)\n🏅 **MVP de la Partie**\n\n[Voir les détails du match sur le site](https://valotracker.sitpi.pro/player/Sitpi/EU)`)
         .setColor(0x00FF00) // Green
         .addFields(
           { name: 'KDA', value: '`24/11/5`', inline: true },
@@ -480,15 +469,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       if (mockAgentIcon) {
         embed.setThumbnail(mockAgentIcon);
       }
-      
-      if (mockMapSplash) {
-        embed.setImage(mockMapSplash);
-      }
-
-      embed.addFields({ 
-        name: 'Détails du match', 
-        value: `[Voir sur le site](https://valotracker.sitpi.pro/player/Sitpi/EU)` 
-      });
 
       await interaction.editReply({ embeds: [embed] });
     } catch (e) {
