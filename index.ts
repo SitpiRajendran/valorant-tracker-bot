@@ -208,15 +208,17 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       ? match.players.filter((p: any) => p.party_id === myPartyId && p.puuid !== playerData.puuid)
       : [];
     const partySize = partyTeammates.length + 1;
-    let groupText = 'Solo';
+    
+    let groupFieldName = '';
+    let groupFieldValue = '';
+    
     if (partySize > 1) {
-      const label = partySize === 2 ? 'Duo' : (partySize === 3 ? 'Trio' : (partySize === 5 ? '5-Stack' : `Groupe de ${partySize}`));
-      const teammatesNames = partyTeammates.map((p: any) => {
+      groupFieldName = partySize === 2 ? 'Duo' : (partySize === 3 ? 'Trio' : (partySize === 5 ? '5-Stack' : `Groupe de ${partySize}`));
+      groupFieldValue = partyTeammates.map((p: any) => {
         const rankName = p.currenttier_patched || 'Non classé';
         const mateEmoji = getRankEmoji(rankName);
         return mateEmoji ? `${p.name}#${p.tag} ${mateEmoji.trim()}` : `${p.name}#${p.tag} (${rankName})`;
-      }).join(', ');
-      groupText = `${label} (avec ${teammatesNames})`;
+      }).join('\n');
     }
 
     // MVP check
@@ -238,7 +240,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     // RR description builder
     const rrText = rrChange >= 0 ? `+${rrChange} RR` : `${rrChange} RR`;
     const userRankEmoji = getRankEmoji(currentRank);
-    let description = `${userRankEmoji}**${currentRank}** • **${currentRR} RR** (\`${rrText}\`)`;
+    let description = `**${rrText}** (${userRankEmoji}${currentRank} • ${currentRR} RR)`;
 
     const embed = new EmbedBuilder()
       .setAuthor({
@@ -251,11 +253,14 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       .addFields(
         { name: 'KDA', value: `\`${kda}\``, inline: true },
         { name: 'KAST', value: `\`${kast}\``, inline: true },
-        { name: 'ACS', value: `\`${acs}\``, inline: true },
-        { name: 'Groupe', value: `👥 ${groupText}`, inline: false }
+        { name: 'ACS', value: `\`${acs}\``, inline: true }
       )
       .setFooter({ text: mapName })
       .setTimestamp(gameStart);
+      
+      if (groupFieldName && groupFieldValue) {
+        embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
+      }
 
     if (agentIcon) {
       embed.setThumbnail(agentIcon);
@@ -440,9 +445,28 @@ async function registerCommands() {
     new SlashCommandBuilder()
       .setName('list-tracked')
       .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
-    new SlashCommandBuilder()
+new SlashCommandBuilder()
       .setName('preview')
-      .setDescription('Affiche un aperçu de la notification de match directement dans Discord'),
+      .setDescription('Affiche un aperçu de la notification de match directement dans Discord')
+      .addStringOption(opt => 
+        opt.setName('resultat')
+          .setDescription('Résultat du match (Victoire ou Défaite)')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Victoire', value: 'win' },
+            { name: 'Défaite', value: 'loss' }
+          )
+      )
+      .addStringOption(opt => 
+        opt.setName('groupe')
+          .setDescription('Type de groupe (Solo, Duo, Trio)')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Solo', value: 'solo' },
+            { name: 'Duo', value: 'duo' },
+            { name: 'Trio', value: 'trio' }
+          )
+      ),
     new SlashCommandBuilder()
       .setName('setup-emojis')
       .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur l\'application du bot')
@@ -568,25 +592,69 @@ client.on('interactionCreate', async (interaction: Interaction) => {
       const mockAgentIcon = getAgentIcon(assets, 'jett') || '';
       const agentName = getAgentName(assets, 'jett');
 
-      const mockEmoji = getRankEmoji('Gold 3'); // Test resolving local emoji if it exists
+      const optResultat = interaction.options.getString('resultat') || 'win';
+      const optGroupe = interaction.options.getString('groupe') || 'duo';
+
+      const mockEmoji = getRankEmoji('Gold 3'); 
       const mockMateEmoji = getRankEmoji('Silver 2');
+      const mockMate2Emoji = getRankEmoji('Bronze 3');
+
+      // 1. Result fields mapping
+      let title = '';
+      let color = 0x00FF00;
+      let rrChangeText = '';
+      let rankDetails = '';
+      if (optResultat === 'loss') {
+        title = '💀 Défaite (5-13) • 🥈 MVP';
+        color = 0xFF0000;
+        rrChangeText = '**-12 RR**';
+        rankDetails = 'Or 3 • 50 RR';
+      } else {
+        title = '🏆 Victoire (13-5) • 🏅 MVP';
+        color = 0x00FF00;
+        rrChangeText = '**+22 RR**';
+        rankDetails = 'Or 3 • 62 RR';
+      }
+      
+      const userRankDisplay = mockEmoji 
+        ? `${rrChangeText} (${mockEmoji.trim()} ${rankDetails})` 
+        : `${rrChangeText} (${rankDetails})`;
+
+      // 2. Teammates group formatting
+      let groupFieldName = '';
+      let groupFieldValue = '';
+      const mate1Disp = mockMateEmoji ? mockMateEmoji.trim() : 'Argent 2';
+      const mate2Disp = mockMate2Emoji ? mockMate2Emoji.trim() : 'Bronze 3';
+
+      if (optGroupe === 'duo') {
+        groupFieldName = 'Duo';
+        groupFieldValue = mockMateEmoji ? `malstrom#EUW ${mate1Disp}` : 'malstrom#EUW (Argent 2)';
+      } else if (optGroupe === 'trio') {
+        groupFieldName = 'Trio';
+        const disp1 = mockMateEmoji ? `malstrom#EUW ${mate1Disp}` : 'malstrom#EUW (Argent 2)';
+        const disp2 = mockMate2Emoji ? `teammate2#EUW ${mate2Disp}` : 'teammate2#EUW (Bronze 3)';
+        groupFieldValue = `${disp1}\n${disp2}`;
+      }
 
       const embed = new EmbedBuilder()
-        .setAuthor({
-          name: `Sitpi#EUW`,
+        .setAuthor({ 
+          name: `Sitpi#EUW`, 
           iconURL: mockTierIcon
         })
-        .setTitle(`🏆 Victoire (13-5) • 🏅 MVP`)
-        .setDescription(`${mockEmoji ? mockEmoji + '**Or 3**' : '**Or 3**'} • **62 RR** (\`+22 RR\`)`)
-        .setColor(0x00FF00) // Green
+        .setTitle(title)
+        .setDescription(userRankDisplay)
+        .setColor(color)
         .addFields(
-          { name: 'KDA', value: '`24/11/5`', inline: true },
-          { name: 'KAST', value: '`83.3%`', inline: true },
-          { name: 'ACS', value: '`285`', inline: true },
-          { name: 'Groupe', value: `👥 Duo (avec ${mockMateEmoji ? 'malstrom#EUW ' + mockMateEmoji.trim() : 'malstrom#EUW (Argent 2)'})`, inline: false }
+          { name: 'KDA', value: optResultat === 'loss' ? '`12/15/4`' : '`24/11/5`', inline: true },
+          { name: 'KAST', value: optResultat === 'loss' ? '`65.0%`' : '`83.3%`', inline: true },
+          { name: 'ACS', value: optResultat === 'loss' ? '`165`' : '`285`', inline: true }
         )
         .setFooter({ text: 'Ascent' })
         .setTimestamp(new Date());
+
+      if (groupFieldName && groupFieldValue) {
+        embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
+      }
 
       if (mockAgentIcon) {
         embed.setThumbnail(mockAgentIcon);
@@ -596,7 +664,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         .setLabel('Détails du match')
         .setURL('https://valotracker.sitpi.pro/player/Sitpi/EUW')
         .setStyle(ButtonStyle.Link);
-
+        
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
       await interaction.editReply({ embeds: [embed], components: [row] });
