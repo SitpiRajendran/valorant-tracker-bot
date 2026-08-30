@@ -332,7 +332,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     // Button to go to the website
     const button = new ButtonBuilder()
       .setLabel('Détails du match')
-      .setURL(`https://valotracker.sitpi.pro/player/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}`)
+      .setURL(`https://valotracker.sitpi.pro/match/${encodeURIComponent(matchId)}?player=${encodeURIComponent(player.name + '#' + player.tag)}`)
       .setStyle(ButtonStyle.Link);
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
@@ -705,7 +705,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
       const button = new ButtonBuilder()
         .setLabel('Détails du match')
-        .setURL('https://valotracker.sitpi.pro/player/Sitpi/EUW')
+        .setURL('https://valotracker.sitpi.pro/match/0de43634-c682-4f47-ab04-07357081a906?player=Sitpi%23EUW')
         .setStyle(ButtonStyle.Link);
         
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
