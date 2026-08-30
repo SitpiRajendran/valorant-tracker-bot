@@ -152,6 +152,71 @@ function getAbsoluteMMR(tierName: string, rr: number): number {
   return (index * 100) + rr;
 }
 
+// Calculate KAST (Kills, Assists, Survived, Traded) for a player in a match
+function calculateKAST(match: any, playerPuuid: string): string {
+  try {
+    const player = match.players?.find((p: any) => p.puuid === playerPuuid);
+    if (!player) return 'N/A';
+
+    const teamId = player.team_id;
+    const totalRounds = match.rounds?.length ?? 0;
+    if (totalRounds === 0) return '0.0%';
+
+    let kastRounds = 0;
+
+    for (let r = 0; r < totalRounds; r++) {
+      // 1. Kill in this round?
+      const roundStats = match.rounds[r]?.stats?.find((s: any) => s.player?.puuid === playerPuuid);
+      const hasKill = roundStats && (roundStats.stats?.kills > 0);
+
+      // 2. Assist in this round?
+      const hasAssist = match.kills?.some((k: any) => 
+        k.round === r && 
+        k.assistants?.some((a: any) => a.puuid === playerPuuid)
+      );
+
+      // 3. Survived this round?
+      const died = match.kills?.some((k: any) => 
+        k.round === r && 
+        k.victim?.puuid === playerPuuid
+      );
+      const survived = !died;
+
+      // 4. Traded in this round?
+      let traded = false;
+      if (died) {
+        const death = match.kills?.find((k: any) => 
+          k.round === r && 
+          k.victim?.puuid === playerPuuid
+        );
+        if (death) {
+          const killerPuuid = death.killer?.puuid;
+          const deathTime = death.time_in_round_in_ms;
+          
+          traded = match.kills?.some((k: any) => 
+            k.round === r &&
+            k.killer?.team === teamId &&
+            k.killer?.puuid !== playerPuuid &&
+            k.victim?.puuid === killerPuuid &&
+            k.time_in_round_in_ms >= deathTime &&
+            k.time_in_round_in_ms <= deathTime + 4000
+          );
+        }
+      }
+
+      if (hasKill || hasAssist || survived || traded) {
+        kastRounds++;
+      }
+    }
+
+    const percentage = (kastRounds / totalRounds) * 100;
+    return `${percentage.toFixed(1)}%`;
+  } catch (e) {
+    console.error('[Bot] Error calculating KAST:', e);
+    return 'N/A';
+  }
+}
+
 // Format Discord Embed for match results
 async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any) {
   try {
@@ -197,7 +262,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     }
 
     // KAST, ACS, and Party grouping extraction
-    const kast = playerData.stats?.kast !== undefined ? `${playerData.stats.kast}%` : 'N/A';
+    const kast = calculateKAST(match, playerData.puuid);
     const totalRounds = roundsRed + roundsBlue;
     const acs = totalRounds > 0 ? Math.round((playerData.stats?.score || 0) / totalRounds) : 0;
 
@@ -400,10 +465,12 @@ async function sendDailySummaries() {
         const totalGames = wins + losses;
         const winrate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
 
-        summaryLines.push(
-          `**${player.name} : ${deltaSign}**`,
-          `${wins}W ${losses}L (${winrate}%) | ${startRank} ${startRR}rr -> ${currentRank} ${currentRR}rr\n`
-        );
+        if (totalGames > 0) {
+          summaryLines.push(
+            `**${player.name} : ${deltaSign}**`,
+            `${wins}W ${losses}L (${winrate}%) | ${startRank} ${startRR}rr -> ${currentRank} ${currentRR}rr\n`
+          );
+        }
 
         // Update database with today's final stats as the start stats for tomorrow
         db.prepare('UPDATE tracked_players SET daily_start_rr = ?, daily_start_rank = ?, daily_start_date = ? WHERE id = ?')
