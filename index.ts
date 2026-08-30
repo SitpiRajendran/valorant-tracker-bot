@@ -278,7 +278,7 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
     if (partySize > 1) {
       groupFieldName = partySize === 2 ? 'Duo' : (partySize === 3 ? 'Trio' : (partySize === 5 ? '5-Stack' : `Groupe de ${partySize}`));
       groupFieldValue = partyTeammates.map((p: any) => {
-        const rankName = p.currenttier_patched || 'Non classé';
+        const rankName = p.tier?.name || 'Non classé';
         const mateEmoji = getRankEmoji(rankName);
         return mateEmoji ? `${mateEmoji.trim()} ${p.name}#${p.tag}` : `${p.name}#${p.tag} (${rankName})`;
       }).join('\n');
