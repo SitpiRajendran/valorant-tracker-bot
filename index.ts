@@ -610,7 +610,7 @@ async function registerCommands() {
       .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
 new SlashCommandBuilder()
       .setName('setup-emojis')
-      .setDescription('Téléverse automatiquement les émojis de rangs Valorant sur l\'application du bot')
+      .setDescription('Téléverse automatiquement les émojis de rangs et d\'agents Valorant sur l\'application du bot')
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN!);
@@ -716,6 +716,35 @@ client.on('interactionCreate', async (interaction: Interaction) => {
           await new Promise(res => setTimeout(res, 1000));
         } catch (err) {
           console.error(`Failed to create application emoji ${emojiName}:`, err);
+        }
+      }
+
+      // Fetch all agents and upload their icons as application emojis
+      if (assets && assets.agentsByName) {
+        for (const [rawAgentKey, agentInfo] of Object.entries(assets.agentsByName)) {
+          if (!agentInfo.icon || !agentInfo.name) continue;
+
+          // Normalize agent name: "KAY/O" -> "kayo", "Jett" -> "jett"
+          const emojiName = agentInfo.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+          if (!emojiName) continue;
+
+          const existing = client.application.emojis.cache.find(e => e.name?.toLowerCase() === emojiName);
+          if (existing) {
+            skipped++;
+            continue;
+          }
+
+          try {
+            await client.application.emojis.create({
+              attachment: agentInfo.icon,
+              name: emojiName
+            });
+            count++;
+            // Be gentle with Discord rate limits
+            await new Promise(res => setTimeout(res, 1000));
+          } catch (err) {
+            console.error(`Failed to create application emoji for agent ${emojiName}:`, err);
+          }
         }
       }
 
