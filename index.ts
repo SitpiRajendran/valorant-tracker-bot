@@ -348,7 +348,7 @@ function buildMatchLeaderboardFields(match: any, trackedPuuid?: string): Leaderb
 }
 
 // Format Discord Embed for match results
-async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any) {
+async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any, isCompact: boolean = false) {
   try {
     const channel = await client.channels.fetch(player.channel_id) as TextChannel;
     if (!channel || !channel.isTextBased()) return;
@@ -452,16 +452,18 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       .setFooter({ text: mapName })
       .setTimestamp(gameStart);
       
-    const leaderboardFields = buildMatchLeaderboardFields(match, playerData.puuid);
-    if (leaderboardFields) {
-      embed.addFields(
-        { name: leaderboardFields.ownTeamTitle, value: leaderboardFields.ownTeamValue, inline: false },
-        { name: leaderboardFields.enemyTeamTitle, value: leaderboardFields.enemyTeamValue, inline: false }
-      );
-    }
+    if (!isCompact) {
+      const leaderboardFields = buildMatchLeaderboardFields(match, playerData.puuid);
+      if (leaderboardFields) {
+        embed.addFields(
+          { name: leaderboardFields.ownTeamTitle, value: leaderboardFields.ownTeamValue, inline: false },
+          { name: leaderboardFields.enemyTeamTitle, value: leaderboardFields.enemyTeamValue, inline: false }
+        );
+      }
 
-    if (groupFieldName && groupFieldValue) {
-      embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
+      if (groupFieldName && groupFieldValue) {
+        embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
+      }
     }
 
     if (agentIcon) {
@@ -483,14 +485,17 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
   }
 }
 
-// Poll matches for tracked players
+// Poll matches for tracked players with match grouping
 async function pollPlayersMatches() {
   const players = db.prepare('SELECT * FROM tracked_players').all() as TrackedPlayer[];
+  if (players.length === 0) return;
   console.log(`[Bot] Polling match history for ${players.length} players...`);
+
+  // Step 1: Discover new matches for all players
+  const newMatchGroups = new Map<string, Array<{ player: TrackedPlayer; latestMmr: any }>>();
 
   for (const player of players) {
     try {
-      // Get MMR history (Competitive games only)
       const mmrUrl = `/valorant/v1/mmr-history/eu/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}`;
       const mmrHistory = await fetchHenrikDev<any>(mmrUrl);
       if (!mmrHistory || !mmrHistory.data || mmrHistory.data.length === 0) continue;
@@ -498,12 +503,10 @@ async function pollPlayersMatches() {
       const latestMmr = mmrHistory.data[0];
       const latestMatchId = latestMmr.match_id;
 
-      // Initialize last_match_id if empty without sending notification
       if (!player.last_match_id) {
         db.prepare('UPDATE tracked_players SET last_match_id = ? WHERE id = ?')
           .run(latestMatchId, player.id);
 
-        // Also set starting daily stats if empty
         if (player.daily_start_rr === null) {
           const todayStr = new Date().toISOString().split('T')[0];
           db.prepare('UPDATE tracked_players SET daily_start_rr = ?, daily_start_rank = ?, daily_start_date = ? WHERE id = ?')
@@ -512,32 +515,53 @@ async function pollPlayersMatches() {
         continue;
       }
 
-      // Check if it's a new match
       if (latestMatchId !== player.last_match_id) {
-        // Fetch detailed match info
-        const matchUrl = `/valorant/v4/matches/eu/pc/${encodeURIComponent(player.name)}/${encodeURIComponent(player.tag)}?size=1`;
-        const matchData = await fetchHenrikDev<any>(matchUrl);
-
-        if (matchData && matchData.data && matchData.data.length > 0) {
-          const match = matchData.data[0];
-
-          // Verify it matches the queue type (Competitive)
-          const isComp = match.metadata?.queue?.name?.toLowerCase() === 'competitive';
-          if (isComp) {
-            await sendMatchNotification(player, match, latestMmr);
-          }
-
-          // Save last match ID
-          db.prepare('UPDATE tracked_players SET last_match_id = ? WHERE id = ?')
-            .run(latestMatchId, player.id);
+        const key = `${player.channel_id}_${latestMatchId}`;
+        if (!newMatchGroups.has(key)) {
+          newMatchGroups.set(key, []);
         }
+        newMatchGroups.get(key)!.push({ player, latestMmr });
       }
     } catch (e) {
       console.error(`[Bot] Error polling player ${player.name}#${player.tag}:`, e);
     }
 
-    // Slight delay to be gentle with rate limiting
-    await new Promise(res => setTimeout(res, 2000));
+    await new Promise(res => setTimeout(res, 1500));
+  }
+
+  // Step 2: Process new matches per channel group
+  for (const [key, group] of newMatchGroups.entries()) {
+    if (group.length === 0) continue;
+
+    const firstItem = group[0];
+    const matchId = firstItem.latestMmr.match_id;
+    const samplePlayer = firstItem.player;
+
+    try {
+      const matchUrl = `/valorant/v4/matches/eu/pc/${encodeURIComponent(samplePlayer.name)}/${encodeURIComponent(samplePlayer.tag)}?size=1`;
+      const matchData = await fetchHenrikDev<any>(matchUrl);
+
+      if (matchData && matchData.data && matchData.data.length > 0) {
+        const match = matchData.data[0];
+        const isComp = match.metadata?.queue?.name?.toLowerCase() === 'competitive';
+
+        if (isComp) {
+          for (let i = 0; i < group.length; i++) {
+            const { player, latestMmr } = group[i];
+            const isCompact = i > 0;
+            await sendMatchNotification(player, match, latestMmr, isCompact);
+            await new Promise(res => setTimeout(res, 500));
+          }
+        }
+
+        for (const { player } of group) {
+          db.prepare('UPDATE tracked_players SET last_match_id = ? WHERE id = ?')
+            .run(matchId, player.id);
+        }
+      }
+    } catch (e) {
+      console.error(`[Bot] Error processing match group ${key}:`, e);
+    }
   }
 }
 
