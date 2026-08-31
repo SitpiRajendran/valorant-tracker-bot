@@ -324,8 +324,9 @@ function buildMatchLeaderboardFields(match: any, trackedPuuid?: string): Leaderb
       const isPartyMate = trackedPartyId && p.partyId === trackedPartyId;
       const isHighlighted = isMainTracked || isPartyMate;
 
-      const nameDisplay = isHighlighted ? ('**' + p.fullName + '**') : p.fullName;
-      const line = overallRankNum + '\\. ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • `' + p.kda + '`';
+      const isolatedName = '\u2066' + p.fullName + '\u2069';
+      const nameDisplay = isHighlighted ? ('**' + isolatedName + '**') : isolatedName;
+      const line = '\u200E' + overallRankNum + '\\. ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • `' + p.kda + '`';
 
       if (p.teamId === ownTeamId) {
         ownTeamLines.push(line);
@@ -409,7 +410,8 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       groupFieldValue = partyTeammates.map((p: any) => {
         const rankName = p.tier?.name || 'Non classé';
         const mateEmoji = getRankEmoji(rankName);
-        return mateEmoji ? `${mateEmoji.trim()} ${p.name}#${p.tag}` : `${p.name}#${p.tag} (${rankName})`;
+        const mateName = '\u2066' + p.name + '#' + p.tag + '\u2069';
+        return mateEmoji ? (`\u200E${mateEmoji.trim()} ` + mateName) : (`\u200E` + mateName + ` (${rankName})`);
       }).join('\n');
     }
 
