@@ -238,16 +238,27 @@ function getAgentEmoji(agentName: string): string {
   return emoji ? (emoji.toString() + ' ') : (getAgentFallbackEmoji(agentName) + ' ');
 }
 
-// Build 10-player leaderboard for match recap embed
-function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
+interface LeaderboardFieldsResult {
+  ownTeamTitle: string;
+  ownTeamValue: string;
+  enemyTeamTitle: string;
+  enemyTeamValue: string;
+}
+
+// Build 10-player leaderboard split into 2 team sections while keeping overall 1-10 match ranking numbers
+function buildMatchLeaderboardFields(match: any, trackedPuuid?: string): LeaderboardFieldsResult | null {
   try {
-    if (!match || !match.players || match.players.length === 0) return '';
+    if (!match || !match.players || match.players.length === 0) return null;
 
-    const teamRedWon = match.teams?.find((t: any) => t.team_id === 'Red')?.rounds?.won ?? 0;
-    const teamBlueWon = match.teams?.find((t: any) => t.team_id === 'Blue')?.rounds?.won ?? 0;
-    const totalRounds = (match.rounds?.length && match.rounds.length > 0) ? match.rounds.length : (teamRedWon + teamBlueWon);
+    const teamRedObj = match.teams?.find((t: any) => t.team_id === 'Red');
+    const teamBlueObj = match.teams?.find((t: any) => t.team_id === 'Blue');
 
-    // Process player stats & ACS
+    const roundsRed = teamRedObj?.rounds?.won ?? 0;
+    const roundsBlue = teamBlueObj?.rounds?.won ?? 0;
+
+    const totalRounds = (match.rounds?.length && match.rounds.length > 0) ? match.rounds.length : (roundsRed + roundsBlue);
+
+    // Process all players and calculate ACS
     const processedPlayers = match.players.map((p: any) => {
       const name = p.name || 'Joueur';
       const tag = p.tag || '';
@@ -278,7 +289,7 @@ function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
       };
     });
 
-    // Sort by ACS descending (kills tie-break)
+    // Sort ALL players by ACS descending (overall match ranking 1 to 10)
     processedPlayers.sort((a: any, b: any) => {
       if (b.acs !== a.acs) return b.acs - a.acs;
       return b.kills - a.kills;
@@ -287,26 +298,51 @@ function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
     const trackedPlayerObj = trackedPuuid ? processedPlayers.find((p: any) => p.puuid === trackedPuuid) : null;
     const trackedPartyId = trackedPlayerObj?.partyId;
 
-    const lines: string[] = [];
+    // Determine own team vs enemy team
+    const trackedTeamId = trackedPlayerObj?.teamId || 'Red';
+    const ownTeamId = trackedTeamId;
+    const enemyTeamId = ownTeamId === 'Red' ? 'Blue' : 'Red';
+
+    const ownTeamScore = ownTeamId === 'Red' ? roundsRed : roundsBlue;
+    const enemyTeamScore = enemyTeamId === 'Red' ? roundsRed : roundsBlue;
+
+    const ownTeamIcon = ownTeamId === 'Red' ? '🔴' : '🔵';
+    const enemyTeamIcon = enemyTeamId === 'Red' ? '🔴' : '🔵';
+
+    const ownTeamName = ownTeamId === 'Red' ? 'Équipe Rouge' : 'Équipe Bleue';
+    const enemyTeamName = enemyTeamId === 'Red' ? 'Équipe Rouge' : 'Équipe Bleue';
+
+    const ownTeamLines: string[] = [];
+    const enemyTeamLines: string[] = [];
+
     for (let i = 0; i < processedPlayers.length; i++) {
       const p = processedPlayers[i];
-      const rankNum = i + 1;
-      const teamDot = p.teamId === 'Red' ? '🔴' : '🔵';
+      const overallRankNum = i + 1;
       const agentEmojiStr = getAgentEmoji(p.agentName);
-      
+
       const isMainTracked = trackedPuuid && p.puuid === trackedPuuid;
       const isPartyMate = trackedPartyId && p.partyId === trackedPartyId;
       const isHighlighted = isMainTracked || isPartyMate;
 
       const nameDisplay = isHighlighted ? ('**' + p.fullName + '**') : p.fullName;
+      const line = overallRankNum + '. ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • `' + p.kda + '`';
 
-      lines.push(rankNum + '. ' + teamDot + ' ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • ' + p.kda + '');
+      if (p.teamId === ownTeamId) {
+        ownTeamLines.push(line);
+      } else {
+        enemyTeamLines.push(line);
+      }
     }
 
-    return lines.join('\n');
+    return {
+      ownTeamTitle: ownTeamIcon + ' ' + ownTeamName + ' (' + ownTeamScore + ')',
+      ownTeamValue: ownTeamLines.join('\n') || 'Aucun joueur',
+      enemyTeamTitle: enemyTeamIcon + ' ' + enemyTeamName + ' (' + enemyTeamScore + ')',
+      enemyTeamValue: enemyTeamLines.join('\n') || 'Aucun joueur'
+    };
   } catch (e) {
-    console.error('[Bot] Error building match leaderboard:', e);
-    return '';
+    console.error('[Bot] Error building match leaderboard fields:', e);
+    return null;
   }
 }
 
@@ -414,9 +450,12 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       .setFooter({ text: mapName })
       .setTimestamp(gameStart);
       
-    const matchLeaderboardText = buildMatchLeaderboard(match, playerData.puuid);
-    if (matchLeaderboardText) {
-      embed.addFields({ name: 'Classement du match', value: matchLeaderboardText, inline: false });
+    const leaderboardFields = buildMatchLeaderboardFields(match, playerData.puuid);
+    if (leaderboardFields) {
+      embed.addFields(
+        { name: leaderboardFields.ownTeamTitle, value: leaderboardFields.ownTeamValue, inline: false },
+        { name: leaderboardFields.enemyTeamTitle, value: leaderboardFields.enemyTeamValue, inline: false }
+      );
     }
 
     if (groupFieldName && groupFieldValue) {
@@ -897,9 +936,12 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         ]
       };
 
-      const previewLeaderboardText = buildMatchLeaderboard(mockMatch, 'main-tracked-puuid');
-      if (previewLeaderboardText) {
-        embed.addFields({ name: 'Classement du match', value: previewLeaderboardText, inline: false });
+      const previewFields = buildMatchLeaderboardFields(mockMatch, 'main-tracked-puuid');
+      if (previewFields) {
+        embed.addFields(
+          { name: previewFields.ownTeamTitle, value: previewFields.ownTeamValue, inline: false },
+          { name: previewFields.enemyTeamTitle, value: previewFields.enemyTeamValue, inline: false }
+        );
       }
 
       if (groupFieldName && groupFieldValue) {
