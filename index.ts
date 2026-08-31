@@ -610,7 +610,28 @@ async function registerCommands() {
       .setDescription('Liste de tous les joueurs suivis sur ce serveur'),
 new SlashCommandBuilder()
       .setName('setup-emojis')
-      .setDescription('Téléverse automatiquement les émojis de rangs et d\'agents Valorant sur l\'application du bot')
+      .setDescription('Téléverse automatiquement les émojis de rangs et d\'agents Valorant sur l\'application du bot'),
+    new SlashCommandBuilder()
+      .setName('preview')
+      .setDescription('Génère un exemple de récapitulatif de fin de match')
+      .addStringOption(opt =>
+        opt.setName('resultat')
+          .setDescription('Résultat du match (win ou loss)')
+          .addChoices(
+            { name: 'Victoire', value: 'win' },
+            { name: 'Défaite', value: 'loss' }
+          )
+          .setRequired(false)
+      )
+      .addStringOption(opt =>
+        opt.setName('groupe')
+          .setDescription('Taille du groupe (duo ou trio)')
+          .addChoices(
+            { name: 'Duo', value: 'duo' },
+            { name: 'Trio', value: 'trio' }
+          )
+          .setRequired(false)
+      )
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN!);
