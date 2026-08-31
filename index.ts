@@ -325,7 +325,7 @@ function buildMatchLeaderboardFields(match: any, trackedPuuid?: string): Leaderb
       const isHighlighted = isMainTracked || isPartyMate;
 
       const nameDisplay = isHighlighted ? ('**' + p.fullName + '**') : p.fullName;
-      const line = overallRankNum + '. ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • `' + p.kda + '`';
+      const line = overallRankNum + '\\. ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • `' + p.kda + '`';
 
       if (p.teamId === ownTeamId) {
         ownTeamLines.push(line);
