@@ -247,25 +247,6 @@ function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
     const teamBlueWon = match.teams?.find((t: any) => t.team_id === 'Blue')?.rounds?.won ?? 0;
     const totalRounds = (match.rounds?.length && match.rounds.length > 0) ? match.rounds.length : (teamRedWon + teamBlueWon);
 
-    // Identify party groups with 2 or more players
-    const partyCounts: Record<string, number> = {};
-    for (const p of match.players) {
-      if (p.party_id) {
-        partyCounts[p.party_id] = (partyCounts[p.party_id] || 0) + 1;
-      }
-    }
-
-    const partyBadgeMap = new Map<string, string>();
-    let badgeIdx = 0;
-    const badgeList = ['🟡', '🟣', '🟢', '🟧', '🟫'];
-
-    for (const [partyId, count] of Object.entries(partyCounts)) {
-      if (count >= 2) {
-        partyBadgeMap.set(partyId, badgeList[badgeIdx % badgeList.length]);
-        badgeIdx++;
-      }
-    }
-
     // Process player stats & ACS
     const processedPlayers = match.players.map((p: any) => {
       const name = p.name || 'Joueur';
@@ -311,7 +292,6 @@ function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
       const p = processedPlayers[i];
       const rankNum = i + 1;
       const teamDot = p.teamId === 'Red' ? '🔴' : '🔵';
-      const partyBadge = p.partyId && partyBadgeMap.has(p.partyId) ? (partyBadgeMap.get(p.partyId) + ' ') : '';
       const agentEmojiStr = getAgentEmoji(p.agentName);
       
       const isMainTracked = trackedPuuid && p.puuid === trackedPuuid;
@@ -320,7 +300,7 @@ function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
 
       const nameDisplay = isHighlighted ? ('**' + p.fullName + '**') : p.fullName;
 
-      lines.push(rankNum + '. ' + teamDot + ' ' + partyBadge + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • ' + p.kda + '');
+      lines.push(rankNum + '. ' + teamDot + ' ' + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • ' + p.kda + '');
     }
 
     return lines.join('\n');
