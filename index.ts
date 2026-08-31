@@ -22,6 +22,7 @@ import {
   getAgentName,
   getMapImage,
   getTierIcon,
+  getAgentFallbackEmoji,
   ValorantAssets
 } from './valorant-assets';
 
@@ -217,6 +218,118 @@ function calculateKAST(match: any, playerPuuid: string): string {
   }
 }
 
+// Helper to find an agent emoji in discord cache or fallback
+function getAgentEmoji(agentName: string): string {
+  if (!agentName) return '👤 ';
+  const cleanName = agentName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  let emoji: any = client.emojis.cache.find(e => {
+    const name = e.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
+    return name === cleanName;
+  });
+
+  if (!emoji && client.application) {
+    emoji = client.application.emojis.cache.find(e => {
+      const name = e.name?.toLowerCase().replace(/[^a-z0-9]/g, '') || '';
+      return name === cleanName;
+    });
+  }
+
+  return emoji ? (emoji.toString() + ' ') : (getAgentFallbackEmoji(agentName) + ' ');
+}
+
+// Build 10-player leaderboard for match recap embed
+function buildMatchLeaderboard(match: any, trackedPuuid?: string): string {
+  try {
+    if (!match || !match.players || match.players.length === 0) return '';
+
+    const teamRedWon = match.teams?.find((t: any) => t.team_id === 'Red')?.rounds?.won ?? 0;
+    const teamBlueWon = match.teams?.find((t: any) => t.team_id === 'Blue')?.rounds?.won ?? 0;
+    const totalRounds = (match.rounds?.length && match.rounds.length > 0) ? match.rounds.length : (teamRedWon + teamBlueWon);
+
+    // Identify party groups with 2 or more players
+    const partyCounts: Record<string, number> = {};
+    for (const p of match.players) {
+      if (p.party_id) {
+        partyCounts[p.party_id] = (partyCounts[p.party_id] || 0) + 1;
+      }
+    }
+
+    const partyBadgeMap = new Map<string, string>();
+    let badgeIdx = 0;
+    const badgeList = ['🟡', '🟣', '🟢', '🟧', '🟫'];
+
+    for (const [partyId, count] of Object.entries(partyCounts)) {
+      if (count >= 2) {
+        partyBadgeMap.set(partyId, badgeList[badgeIdx % badgeList.length]);
+        badgeIdx++;
+      }
+    }
+
+    // Process player stats & ACS
+    const processedPlayers = match.players.map((p: any) => {
+      const name = p.name || 'Joueur';
+      const tag = p.tag || '';
+      const fullName = tag ? (name + '#' + tag) : name;
+      const teamId = p.team_id || 'Red';
+      const agentRaw = p.agent?.name || p.agent?.id || (typeof p.agent === 'string' ? p.agent : '');
+      const agentName = getAgentName(assets, agentRaw);
+      const kills = p.stats?.kills ?? 0;
+      const deaths = p.stats?.deaths ?? 0;
+      const assists = p.stats?.assists ?? 0;
+      const score = p.stats?.score ?? 0;
+      const acs = totalRounds > 0 ? Math.round(score / totalRounds) : score;
+
+      return {
+        puuid: p.puuid,
+        name,
+        tag,
+        fullName,
+        teamId,
+        partyId: p.party_id,
+        agentName,
+        kills,
+        deaths,
+        assists,
+        score,
+        acs,
+        kda: (kills + '/' + deaths + '/' + assists)
+      };
+    });
+
+    // Sort by ACS descending (kills tie-break)
+    processedPlayers.sort((a: any, b: any) => {
+      if (b.acs !== a.acs) return b.acs - a.acs;
+      return b.kills - a.kills;
+    });
+
+    const trackedPlayerObj = trackedPuuid ? processedPlayers.find((p: any) => p.puuid === trackedPuuid) : null;
+    const trackedPartyId = trackedPlayerObj?.partyId;
+
+    const lines: string[] = [];
+    for (let i = 0; i < processedPlayers.length; i++) {
+      const p = processedPlayers[i];
+      const rankNum = i + 1;
+      const teamDot = p.teamId === 'Red' ? '🔴' : '🔵';
+      const partyBadge = p.partyId && partyBadgeMap.has(p.partyId) ? (partyBadgeMap.get(p.partyId) + ' ') : '';
+      const agentEmojiStr = getAgentEmoji(p.agentName);
+      
+      const isMainTracked = trackedPuuid && p.puuid === trackedPuuid;
+      const isPartyMate = trackedPartyId && p.partyId === trackedPartyId;
+      const isHighlighted = isMainTracked || isPartyMate;
+
+      const nameDisplay = isHighlighted ? ('**' + p.fullName + '**') : p.fullName;
+
+      lines.push(rankNum + '. ' + teamDot + ' ' + partyBadge + agentEmojiStr + nameDisplay + ' • **' + p.acs + '** ACS • ' + p.kda + '');
+    }
+
+    return lines.join('\n');
+  } catch (e) {
+    console.error('[Bot] Error building match leaderboard:', e);
+    return '';
+  }
+}
+
 // Format Discord Embed for match results
 async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any) {
   try {
@@ -321,9 +434,14 @@ async function sendMatchNotification(player: TrackedPlayer, match: any, mmr: any
       .setFooter({ text: mapName })
       .setTimestamp(gameStart);
       
-      if (groupFieldName && groupFieldValue) {
-        embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
-      }
+    const matchLeaderboardText = buildMatchLeaderboard(match, playerData.puuid);
+    if (matchLeaderboardText) {
+      embed.addFields({ name: 'Classement du match', value: matchLeaderboardText, inline: false });
+    }
+
+    if (groupFieldName && groupFieldValue) {
+      embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });
+    }
 
     if (agentIcon) {
       embed.setThumbnail(agentIcon);
@@ -694,6 +812,65 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         )
         .setFooter({ text: 'Ascent' })
         .setTimestamp(new Date());
+
+      // Mock match for 10-player leaderboard preview
+      const isWin = optResultat !== 'loss';
+      const mockMatch: any = {
+        teams: [
+          { team_id: 'Red', rounds: { won: isWin ? 13 : 5 } },
+          { team_id: 'Blue', rounds: { won: isWin ? 5 : 13 } }
+        ],
+        players: [
+          {
+            puuid: 'main-tracked-puuid', name: 'Sitpi', tag: 'EUW', team_id: 'Red', party_id: 'party-group-1',
+            agent: { name: 'Jett' }, stats: { score: isWin ? 5130 : 2970, kills: isWin ? 24 : 12, deaths: isWin ? 11 : 15, assists: isWin ? 5 : 4 }
+          },
+          {
+            puuid: 'p2', name: 'EnemyMVP', tag: 'EUW', team_id: 'Blue', party_id: 'enemy-party-1',
+            agent: { name: 'Reyna' }, stats: { score: 4500, kills: 22, deaths: 13, assists: 3 }
+          },
+          {
+            puuid: 'p3', name: 'malstrom', tag: 'EUW', team_id: 'Red', party_id: 'party-group-1',
+            agent: { name: 'Omen' }, stats: { score: 3780, kills: 16, deaths: 12, assists: 8 }
+          },
+          ...(optGroupe === 'trio' ? [{
+            puuid: 'p4', name: 'teammate2', tag: 'EUW', team_id: 'Red', party_id: 'party-group-1',
+            agent: { name: 'Sova' }, stats: { score: 3240, kills: 13, deaths: 14, assists: 6 }
+          }] : [{
+            puuid: 'p4', name: 'Ally3', tag: 'EUW', team_id: 'Red', party_id: 'solo-red-1',
+            agent: { name: 'Brimstone' }, stats: { score: 3240, kills: 13, deaths: 14, assists: 6 }
+          }]),
+          {
+            puuid: 'p5', name: 'Enemy2', tag: 'EUW', team_id: 'Blue', party_id: 'enemy-party-1',
+            agent: { name: 'Neon' }, stats: { score: 3060, kills: 14, deaths: 13, assists: 4 }
+          },
+          {
+            puuid: 'p6', name: 'Ally4', tag: 'EUW', team_id: 'Red', party_id: 'solo-red-2',
+            agent: { name: 'Killjoy' }, stats: { score: 2700, kills: 11, deaths: 15, assists: 5 }
+          },
+          {
+            puuid: 'p7', name: 'Enemy3', tag: 'EUW', team_id: 'Blue', party_id: 'solo-blue-1',
+            agent: { name: 'Clove' }, stats: { score: 2520, kills: 10, deaths: 16, assists: 7 }
+          },
+          {
+            puuid: 'p8', name: 'Enemy4', tag: 'EUW', team_id: 'Blue', party_id: 'solo-blue-2',
+            agent: { name: 'Cypher' }, stats: { score: 2160, kills: 9, deaths: 15, assists: 3 }
+          },
+          {
+            puuid: 'p9', name: 'Ally5', tag: 'EUW', team_id: 'Red', party_id: 'solo-red-3',
+            agent: { name: 'Fade' }, stats: { score: 1980, kills: 8, deaths: 16, assists: 6 }
+          },
+          {
+            puuid: 'p10', name: 'Enemy5', tag: 'EUW', team_id: 'Blue', party_id: 'solo-blue-3',
+            agent: { name: 'Viper' }, stats: { score: 1800, kills: 7, deaths: 17, assists: 4 }
+          }
+        ]
+      };
+
+      const previewLeaderboardText = buildMatchLeaderboard(mockMatch, 'main-tracked-puuid');
+      if (previewLeaderboardText) {
+        embed.addFields({ name: 'Classement du match', value: previewLeaderboardText, inline: false });
+      }
 
       if (groupFieldName && groupFieldValue) {
         embed.addFields({ name: groupFieldName, value: groupFieldValue, inline: false });

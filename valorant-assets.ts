@@ -18,17 +18,17 @@ function normalizeTierName(name: string): string {
 
 async function loadAssets(): Promise<ValorantAssets> {
   const [agentsRes, mapsRes, tiersRes] = await Promise.all([
-    fetch("https://valorant-api.com/v1/agents?isPlayableCharacter=true"),
-    fetch("https://valorant-api.com/v1/maps"),
-    fetch("https://valorant-api.com/v1/competitivetiers"),
+    fetch('https://valorant-api.com/v1/agents?isPlayableCharacter=true'),
+    fetch('https://valorant-api.com/v1/maps'),
+    fetch('https://valorant-api.com/v1/competitivetiers'),
   ])
 
   const agentsJson = await agentsRes.json()
   const mapsJson = await mapsRes.json()
   const tiersJson = await tiersRes.json()
 
-  const agentsByName: ValorantAssets["agentsByName"] = {}
-  const agentsById: ValorantAssets["agentsById"] = {}
+  const agentsByName: ValorantAssets['agentsByName'] = {}
+  const agentsById: ValorantAssets['agentsById'] = {}
   for (const agent of agentsJson.data || []) {
     if (!agent.displayName) continue
     const agentData = {
@@ -40,7 +40,7 @@ async function loadAssets(): Promise<ValorantAssets> {
     agentsById[agent.uuid.toLowerCase()] = agentData
   }
 
-  const mapsByName: ValorantAssets["mapsByName"] = {}
+  const mapsByName: ValorantAssets['mapsByName'] = {}
   for (const map of mapsJson.data || []) {
     if (!map.displayName) continue
     mapsByName[map.displayName.toLowerCase()] = {
@@ -51,8 +51,8 @@ async function loadAssets(): Promise<ValorantAssets> {
 
   const tierSets = tiersJson.data || []
   const currentTierSet = tierSets[tierSets.length - 1]
-  const tiersByNumber: ValorantAssets["tiersByNumber"] = {}
-  const tiersByName: ValorantAssets["tiersByName"] = {}
+  const tiersByNumber: ValorantAssets['tiersByNumber'] = {}
+  const tiersByName: ValorantAssets['tiersByName'] = {}
   for (const tier of currentTierSet?.tiers || []) {
     tiersByNumber[tier.tier] = { name: tier.tierName, icon: tier.largeIcon }
     if (tier.tierName) {
@@ -82,11 +82,46 @@ export function getAgentIcon(assets: ValorantAssets | null, agentNameOrId?: stri
 }
 
 export function getAgentName(assets: ValorantAssets | null, agentNameOrId?: string): string {
-  if (!assets || !agentNameOrId) return agentNameOrId || "Inconnu"
+  if (!assets || !agentNameOrId) return agentNameOrId || 'Inconnu'
   const key = agentNameOrId.toLowerCase()
   if (assets.agentsById[key]) return assets.agentsById[key].name
   if (assets.agentsByName[key]) return assets.agentsByName[key].name
   return agentNameOrId
+}
+
+const DEFAULT_AGENT_EMOJIS: Record<string, string> = {
+  jett: '💨',
+  reyna: '👁️',
+  raze: '💥',
+  phoenix: '🚀',
+  neon: '⚡',
+  yoru: '🗡️',
+  iso: '🔨',
+  clove: '💧',
+  omen: '🌀',
+  viper: '🐍',
+  brimstone: '🧪',
+  astra: '🔮',
+  harbor: '🌊',
+  sova: '🏹',
+  fade: '🎨',
+  breach: '🛡️',
+  skye: '🐺',
+  'kay/o': '🤖',
+  kayo: '🤖',
+  gekko: '🪰',
+  cypher: '🕵️',
+  killjoy: '🔧',
+  sage: '🧊',
+  chamber: '👑',
+  deadlock: '🩸',
+  vyse: '🕷️',
+}
+
+export function getAgentFallbackEmoji(agentName?: string): string {
+  if (!agentName) return '👤'
+  const key = agentName.toLowerCase().trim()
+  return DEFAULT_AGENT_EMOJIS[key] || '👤'
 }
 
 export function getMapImage(assets: ValorantAssets | null, mapName?: string): string | undefined {
